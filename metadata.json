@@ -1,0 +1,6 @@
+{
+  "name": "KaziHub Tanzania",
+  "description": "Tanzania skills registry, job discovery, and mobile money premium hiring platform connecting skilled workers with employers across all regions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
