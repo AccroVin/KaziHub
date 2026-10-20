@@ -1,0 +1,145 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 100 &&
+             data.phoneNumber is string && data.phoneNumber.size() >= 5 && data.phoneNumber.size() <= 30 &&
+             data.primaryTrade is string && data.primaryTrade.size() <= 100 &&
+             data.region is string && data.region.size() <= 100 &&
+             (!('district' in data) || data.district == null || (data.district is string && data.district.size() <= 100)) &&
+             (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 120)) &&
+             (!('skills' in data) || data.skills == null || (data.skills is list && data.skills.size() <= 50)) &&
+             (!('yearsExperience' in data) || data.yearsExperience == null || ((data.yearsExperience is int || data.yearsExperience is number) && data.yearsExperience >= 0 && data.yearsExperience <= 60)) &&
+             (!('expectedRateTsh' in data) || data.expectedRateTsh == null || ((data.expectedRateTsh is int || data.expectedRateTsh is number) && data.expectedRateTsh >= 0 && data.expectedRateTsh <= 100000000)) &&
+             (!('ratePeriod' in data) || data.ratePeriod == null || (data.ratePeriod is string && data.ratePeriod.size() <= 50)) &&
+             (!('bio' in data) || data.bio == null || (data.bio is string && data.bio.size() <= 2000)) &&
+             (!('isVerifiedPro' in data) || data.isVerifiedPro == null || data.isVerifiedPro is bool) &&
+             (!('verifiedPro' in data) || data.verifiedPro == null || data.verifiedPro is bool) &&
+             (!('rating' in data) || data.rating == null || ((data.rating is number || data.rating is int) && data.rating >= 0 && data.rating <= 5)) &&
+             (!('completedJobs' in data) || data.completedJobs == null || ((data.completedJobs is int || data.completedJobs is number) && data.completedJobs >= 0)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             (!('updatedAt' in data) || data.updatedAt == null || (data.updatedAt is timestamp && data.updatedAt <= request.time));
+    }
+
+    function isValidJobVacancy(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.title is string && data.title.size() >= 3 && data.title.size() <= 150 &&
+             data.employerName is string && data.employerName.size() >= 2 && data.employerName.size() <= 100 &&
+             data.category is string && data.category.size() <= 100 &&
+             data.region is string && data.region.size() <= 100 &&
+             (data.salaryTsh is int || data.salaryTsh is number) && data.salaryTsh >= 0 && data.salaryTsh <= 500000000 &&
+             data.contactPhone is string && data.contactPhone.size() >= 5 && data.contactPhone.size() <= 30 &&
+             (!('district' in data) || data.district == null || (data.district is string && data.district.size() <= 100)) &&
+             (!('requiredSkills' in data) || data.requiredSkills == null || (data.requiredSkills is list && data.requiredSkills.size() <= 30)) &&
+             (!('salaryPeriod' in data) || data.salaryPeriod == null || (data.salaryPeriod is string && data.salaryPeriod.size() <= 50)) &&
+             (!('jobType' in data) || data.jobType == null || (data.jobType is string && data.jobType.size() <= 80)) &&
+             (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 4000)) &&
+             (!('contactWhatsapp' in data) || data.contactWhatsapp == null || (data.contactWhatsapp is string && data.contactWhatsapp.size() <= 30)) &&
+             (!('isUrgent' in data) || data.isUrgent == null || data.isUrgent is bool) &&
+             (!('urgent' in data) || data.urgent == null || data.urgent is bool) &&
+             (!('isFeatured' in data) || data.isFeatured == null || data.isFeatured is bool) &&
+             (!('featured' in data) || data.featured == null || data.featured is bool) &&
+             (!('postedDate' in data) || data.postedDate == null || (data.postedDate is string && data.postedDate.size() <= 50)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             (!('updatedAt' in data) || data.updatedAt == null || (data.updatedAt is timestamp && data.updatedAt <= request.time));
+    }
+
+    function isValidJobApplication(data) {
+      return data.applicantId is string && data.applicantId.size() <= 128 &&
+             data.jobId is string && data.jobId.size() <= 128 &&
+             data.jobTitle is string && data.jobTitle.size() <= 150 &&
+             data.employerName is string && data.employerName.size() <= 100 &&
+             (!('applicantName' in data) || data.applicantName == null || (data.applicantName is string && data.applicantName.size() <= 100)) &&
+             (!('applicantPhone' in data) || data.applicantPhone == null || (data.applicantPhone is string && data.applicantPhone.size() <= 30)) &&
+             (!('proposalNote' in data) || data.proposalNote == null || (data.proposalNote is string && data.proposalNote.size() <= 2000)) &&
+             (!('status' in data) || data.status == null || (data.status is string && data.status.size() <= 50)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    // 1. User Profiles Collection
+    match /users/{userId} {
+      allow get, list: if isSignedIn();
+
+      allow create: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'fullName', 'phoneNumber', 'primaryTrade', 'region', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'fullName', 'phoneNumber', 'email', 'region', 'district', 'primaryTrade', 'skills', 'yearsExperience', 'expectedRateTsh', 'ratePeriod', 'bio', 'isVerifiedPro', 'verifiedPro', 'rating', 'completedJobs', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phoneNumber', 'email', 'region', 'district', 'primaryTrade', 'skills', 'yearsExperience', 'expectedRateTsh', 'ratePeriod', 'bio', 'isVerifiedPro', 'verifiedPro', 'rating', 'completedJobs', 'updatedAt']);
+
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // 2. Job Listings Collection (Public marketplace read for signed-in users)
+    match /jobs/{jobId} {
+      allow get, list: if isSignedIn();
+
+      allow create: if isSignedIn() &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'title', 'employerName', 'category', 'region', 'salaryTsh', 'contactPhone', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'title', 'employerName', 'category', 'requiredSkills', 'region', 'district', 'salaryTsh', 'salaryPeriod', 'jobType', 'description', 'contactPhone', 'contactWhatsapp', 'isUrgent', 'urgent', 'isFeatured', 'featured', 'postedDate', 'createdAt', 'updatedAt']) &&
+                       isValidJobVacancy(incoming());
+
+      allow update: if isSignedIn() &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidJobVacancy(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'employerName', 'category', 'requiredSkills', 'region', 'district', 'salaryTsh', 'salaryPeriod', 'jobType', 'description', 'contactPhone', 'contactWhatsapp', 'isUrgent', 'urgent', 'isFeatured', 'featured', 'postedDate', 'updatedAt']);
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // 3. Applications Collection
+    match /applications/{applicationId} {
+      allow get, list: if isSignedIn() && resource.data.applicantId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       incoming().applicantId == request.auth.uid &&
+                       incoming().keys().hasAll(['applicantId', 'jobId', 'jobTitle', 'employerName', 'createdAt']) &&
+                       incoming().keys().hasOnly(['applicantId', 'jobId', 'jobTitle', 'employerName', 'applicantName', 'applicantPhone', 'proposalNote', 'status', 'createdAt']) &&
+                       isValidJobApplication(incoming());
+
+      allow update: if isSignedIn() &&
+                       resource.data.applicantId == request.auth.uid &&
+                       incoming().applicantId == existing().applicantId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidJobApplication(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['proposalNote', 'status']);
+
+      allow delete: if isSignedIn() && resource.data.applicantId == request.auth.uid;
+    }
+  }
+}

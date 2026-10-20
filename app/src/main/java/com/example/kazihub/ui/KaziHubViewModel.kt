@@ -5,9 +5,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.kazihub.data.local.KaziHubDatabase
 import com.example.kazihub.data.model.JobApplication
+import com.example.kazihub.data.model.JobApplicationFirestore
 import com.example.kazihub.data.model.JobListing
+import com.example.kazihub.data.model.JobVacancyFirestore
 import com.example.kazihub.data.model.SubscriptionRecord
+import com.example.kazihub.data.model.UserProfileFirestore
 import com.example.kazihub.data.model.WorkerProfile
+import com.example.kazihub.data.repository.FirestoreKaziRepository
 import com.example.kazihub.data.repository.KaziHubRepository
 import com.example.kazihub.util.AppLanguage
 import kotlinx.coroutines.delay
@@ -41,8 +45,13 @@ data class FilterCriteria(
     val matchSkills: Boolean
 )
 
-class KaziHubViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository: KaziHubRepository
+class KaziHubViewModel(
+    application: Application,
+    val currentUserId: String,
+    private val firestoreRepository: FirestoreKaziRepository
+) : AndroidViewModel(application) {
+
+    private val localRepository: KaziHubRepository
 
     val workerProfile: StateFlow<WorkerProfile?>
     private val _allJobs = MutableStateFlow<List<JobListing>>(emptyList())
@@ -80,30 +89,90 @@ class KaziHubViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         val db = KaziHubDatabase.getDatabase(application)
-        repository = KaziHubRepository(db)
+        localRepository = KaziHubRepository(db)
 
-        workerProfile = repository.workerProfile.stateIn(
+        workerProfile = localRepository.workerProfile.stateIn(
             viewModelScope,
             SharingStarted.Eagerly,
             null
         )
 
-        activeSubscription = repository.activeSubscription.stateIn(
+        activeSubscription = localRepository.activeSubscription.stateIn(
             viewModelScope,
             SharingStarted.Eagerly,
             null
         )
 
-        applications = repository.applications.stateIn(
+        applications = localRepository.applications.stateIn(
             viewModelScope,
             SharingStarted.Eagerly,
             emptyList()
         )
 
         viewModelScope.launch {
-            repository.initializeDatabaseIfEmpty()
-            repository.allJobs.collect {
+            localRepository.initializeDatabaseIfEmpty()
+            localRepository.allJobs.collect {
                 _allJobs.value = it
+            }
+        }
+
+        // Initialize and listen to Cloud Firestore
+        viewModelScope.launch {
+            firestoreRepository.seedInitialJobsIfEmpty()
+        }
+
+        // Realtime sync from Cloud Firestore for public jobs
+        viewModelScope.launch {
+            firestoreRepository.observeAllJobs().collect { firestoreJobs ->
+                if (firestoreJobs.isNotEmpty()) {
+                    val converted = firestoreJobs.map { fj ->
+                        JobListing(
+                            id = fj.id.hashCode().toLong(),
+                            title = fj.title,
+                            employerName = fj.employerName,
+                            category = fj.category,
+                            requiredSkills = fj.requiredSkills,
+                            region = fj.region,
+                            district = fj.district,
+                            salaryTsh = fj.salaryTsh,
+                            salaryPeriod = fj.salaryPeriod,
+                            jobType = fj.jobType,
+                            description = fj.description,
+                            contactPhone = fj.contactPhone,
+                            contactWhatsapp = fj.contactWhatsapp,
+                            isUrgent = fj.isUrgent,
+                            isFeatured = fj.isFeatured,
+                            postedDate = fj.postedDate
+                        )
+                    }
+                    _allJobs.value = converted
+                }
+            }
+        }
+
+        // Realtime sync from Cloud Firestore for user profile
+        viewModelScope.launch {
+            firestoreRepository.observeUserProfile(currentUserId).collect { cloudProfile ->
+                if (cloudProfile != null) {
+                    val local = WorkerProfile(
+                        id = 1L,
+                        fullName = cloudProfile.fullName,
+                        phoneNumber = cloudProfile.phoneNumber,
+                        email = cloudProfile.email,
+                        region = cloudProfile.region,
+                        district = cloudProfile.district,
+                        primaryTrade = cloudProfile.primaryTrade,
+                        skills = cloudProfile.skills,
+                        yearsExperience = cloudProfile.yearsExperience,
+                        expectedRateTsh = cloudProfile.expectedRateTsh,
+                        ratePeriod = cloudProfile.ratePeriod,
+                        bio = cloudProfile.bio,
+                        isVerifiedPro = cloudProfile.isVerifiedPro,
+                        rating = cloudProfile.rating.toFloat(),
+                        completedJobs = cloudProfile.completedJobs
+                    )
+                    localRepository.updateProfile(local)
+                }
             }
         }
     }
@@ -194,15 +263,37 @@ class KaziHubViewModel(application: Application) : AndroidViewModel(application)
 
     fun toggleSaveJob(job: JobListing) {
         viewModelScope.launch {
-            repository.toggleSaveJob(job.id, !job.isSaved)
+            localRepository.toggleSaveJob(job.id, !job.isSaved)
         }
     }
 
     fun updateProfile(profile: WorkerProfile) {
         viewModelScope.launch {
-            repository.updateProfile(profile)
+            // Update local Room database
+            localRepository.updateProfile(profile)
+
+            // Sync to Cloud Firestore
+            val firestoreProfile = UserProfileFirestore(
+                userId = currentUserId,
+                fullName = profile.fullName,
+                phoneNumber = profile.phoneNumber,
+                email = profile.email,
+                region = profile.region,
+                district = profile.district,
+                primaryTrade = profile.primaryTrade,
+                skills = profile.skills,
+                yearsExperience = profile.yearsExperience,
+                expectedRateTsh = profile.expectedRateTsh,
+                ratePeriod = profile.ratePeriod,
+                bio = profile.bio,
+                isVerifiedPro = profile.isVerifiedPro,
+                rating = profile.rating.toDouble(),
+                completedJobs = profile.completedJobs
+            )
+            firestoreRepository.saveUserProfile(firestoreProfile)
+
             _userMessage.value = if (_language.value == AppLanguage.SWAHILI)
-                "Wasifu wako umehifadhiwa kikamilifu!" else "Profile saved successfully!"
+                "Wasifu wako umehifadhiwa kwenye Cloud Firestore!" else "Profile saved to Cloud Firestore successfully!"
         }
     }
 
@@ -235,6 +326,28 @@ class KaziHubViewModel(application: Application) : AndroidViewModel(application)
         whatsapp: String
     ) {
         viewModelScope.launch {
+            // Post to Cloud Firestore
+            val cloudJob = JobVacancyFirestore(
+                userId = currentUserId,
+                title = title,
+                employerName = employer,
+                category = category,
+                requiredSkills = skills,
+                region = region,
+                district = district,
+                salaryTsh = salaryTsh,
+                salaryPeriod = period,
+                jobType = jobType,
+                description = description,
+                contactPhone = phone,
+                contactWhatsapp = whatsapp,
+                isUrgent = false,
+                isFeatured = true,
+                postedDate = "Hivi punde"
+            )
+            val result = firestoreRepository.postJob(cloudJob)
+
+            // Also post to local Room
             val newJob = JobListing(
                 title = title,
                 employerName = employer,
@@ -252,9 +365,15 @@ class KaziHubViewModel(application: Application) : AndroidViewModel(application)
                 isFeatured = true,
                 postedDate = "Hivi punde"
             )
-            repository.postJob(newJob)
-            _userMessage.value = if (_language.value == AppLanguage.SWAHILI)
-                "Nafasi ya kazi imechapishwa kikamilifu!" else "Job vacancy published successfully!"
+            localRepository.postJob(newJob)
+
+            _userMessage.value = if (result.isSuccess) {
+                if (_language.value == AppLanguage.SWAHILI)
+                    "Kazi imechapishwa kwenye Cloud Firestore!" else "Job published to Cloud Firestore!"
+            } else {
+                if (_language.value == AppLanguage.SWAHILI)
+                    "Kazi imehifadhiwa!" else "Job saved!"
+            }
             _currentScreen.value = Screen.JOBS
         }
     }
@@ -262,14 +381,31 @@ class KaziHubViewModel(application: Application) : AndroidViewModel(application)
     fun applyForJob(job: JobListing, coverNote: String) {
         viewModelScope.launch {
             val profile = workerProfile.value
-            repository.applyForJob(
+
+            // Submit application to Cloud Firestore
+            val cloudApp = JobApplicationFirestore(
+                applicantId = currentUserId,
+                jobId = job.id.toString(),
+                jobTitle = job.title,
+                employerName = job.employerName,
+                applicantName = profile?.fullName ?: "Mwombaji",
+                applicantPhone = profile?.phoneNumber ?: "",
+                proposalNote = coverNote
+            )
+            firestoreRepository.submitApplication(cloudApp)
+
+            // Also track in local Room
+            localRepository.applyForJob(
                 jobId = job.id,
                 jobTitle = job.title,
                 employerName = job.employerName,
                 proposal = coverNote
             )
+
             _userMessage.value = if (_language.value == AppLanguage.SWAHILI)
-                "Maombi yako yametumwa kwa ${job.employerName}!" else "Application sent to ${job.employerName}!"
+                "Maombi yako yametumwa kwa ${job.employerName} na kuhifadhiwa Cloud!"
+            else
+                "Application sent to ${job.employerName} & saved to Cloud!"
         }
     }
 
@@ -287,7 +423,15 @@ class KaziHubViewModel(application: Application) : AndroidViewModel(application)
             _paymentState.value = PaymentUiState.ProcessingUssd(carrier, 1)
             delay(1000)
 
-            val record = repository.activateSubscription(planType, priceTsh, carrier, phoneNumber)
+            val record = localRepository.activateSubscription(planType, priceTsh, carrier, phoneNumber)
+
+            // Update Pro status in Cloud Firestore profile
+            val current = workerProfile.value
+            if (current != null) {
+                val updatedProfile = current.copy(isVerifiedPro = true, proExpiryDate = record.expiresAt)
+                updateProfile(updatedProfile)
+            }
+
             _paymentState.value = PaymentUiState.Success(record)
             _userMessage.value = if (_language.value == AppLanguage.SWAHILI)
                 "Hongera! KaziHub Pro imewashwa kwa namba $phoneNumber"

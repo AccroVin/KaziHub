@@ -1,0 +1,92 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Worker or employer profile on KaziHub Tanzania.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Auth UID of the user." },
+        "fullName": { "type": "string", "description": "Full name of the worker." },
+        "phoneNumber": { "type": "string", "description": "Phone/WhatsApp contact." },
+        "email": { "type": "string", "description": "Email address." },
+        "region": { "type": "string", "description": "Tanzanian region e.g. Dar es Salaam." },
+        "district": { "type": "string", "description": "District or neighborhood." },
+        "primaryTrade": { "type": "string", "description": "Primary profession or trade." },
+        "skills": {
+          "type": "array",
+          "description": "List of mastered skills."
+        },
+        "yearsExperience": { "type": "integer", "description": "Years of experience." },
+        "expectedRateTsh": { "type": "integer", "description": "Expected rate in Tanzanian Shillings." },
+        "ratePeriod": { "type": "string", "description": "Rate frequency e.g. Kwa Siku." },
+        "bio": { "type": "string", "description": "Worker bio and experience details." },
+        "isVerifiedPro": { "type": "boolean", "description": "Whether user has active Pro badge." },
+        "rating": { "type": "number", "description": "Worker rating out of 5." },
+        "completedJobs": { "type": "integer", "description": "Count of successfully completed jobs." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Document creation server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Document update server timestamp." }
+      },
+      "required": ["userId", "fullName", "phoneNumber", "primaryTrade", "region", "createdAt"]
+    },
+    "JobVacancy": {
+      "title": "JobVacancy",
+      "description": "Job listing posted on the KaziHub Tanzania platform.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "UID of the employer/poster." },
+        "title": { "type": "string", "description": "Job title." },
+        "employerName": { "type": "string", "description": "Employer or business name." },
+        "category": { "type": "string", "description": "Job category." },
+        "requiredSkills": {
+          "type": "array",
+          "description": "List of required skills."
+        },
+        "region": { "type": "string", "description": "Region in Tanzania." },
+        "district": { "type": "string", "description": "District or street." },
+        "salaryTsh": { "type": "integer", "description": "Salary or budget in TSh." },
+        "salaryPeriod": { "type": "string", "description": "Salary frequency e.g. Kwa Mwezi." },
+        "jobType": { "type": "string", "description": "Job type e.g. Kibarua, Contract, Full-time." },
+        "description": { "type": "string", "description": "Detailed job duties and scope." },
+        "contactPhone": { "type": "string", "description": "Direct phone contact." },
+        "contactWhatsapp": { "type": "string", "description": "WhatsApp phone contact." },
+        "isUrgent": { "type": "boolean", "description": "Urgent flag." },
+        "isFeatured": { "type": "boolean", "description": "Featured flag." },
+        "postedDate": { "type": "string", "description": "Display posted date text." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update timestamp." }
+      },
+      "required": ["userId", "title", "employerName", "category", "region", "salaryTsh", "contactPhone", "createdAt"]
+    },
+    "JobApplicationRecord": {
+      "title": "JobApplicationRecord",
+      "description": "Job application submitted by an applicant to an employer.",
+      "type": "object",
+      "properties": {
+        "applicantId": { "type": "string", "description": "UID of the job applicant." },
+        "jobId": { "type": "string", "description": "ID of the applied job listing." },
+        "jobTitle": { "type": "string", "description": "Title of the job applied for." },
+        "employerName": { "type": "string", "description": "Name of the hiring employer." },
+        "applicantName": { "type": "string", "description": "Applicant full name." },
+        "applicantPhone": { "type": "string", "description": "Applicant phone number." },
+        "proposalNote": { "type": "string", "description": "Proposal or introductory note." },
+        "status": { "type": "string", "description": "Status of the application." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Submission server timestamp." }
+      },
+      "required": ["applicantId", "jobId", "jobTitle", "employerName", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Stores user profiles with mastered skills, rates, and contact."
+    },
+    "/jobs/{jobId}": {
+      "schema": { "$ref": "#/entities/JobVacancy" },
+      "description": "Public marketplace job vacancies searchable by all signed-in users."
+    },
+    "/applications/{applicationId}": {
+      "schema": { "$ref": "#/entities/JobApplicationRecord" },
+      "description": "Job applications submitted by candidates."
+    }
+  }
+}
